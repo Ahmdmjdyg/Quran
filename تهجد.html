@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>المصحف المتكامل</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        :root {
+            --primary: #2E7D32; /* أخضر داكن */
+            --accent: #D4AF37;  /* ذهبي */
+            --cream: #FFF8E1;   /* كريمي */
+            --dark: #1A237E;    /* أزرق داكن */
+        }
+
+        body {
+            background: var(--cream);
+            margin: 0;
+            font-family: 'Amiri', serif;
+        }
+
+        .juz-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .juz-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid var(--cream);
+        }
+
+        .juz-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent);
+        }
+
+        .juz-number {
+            color: var(--primary);
+            font-size: 1.8em;
+            margin-bottom: 8px;
+        }
+
+        .juz-pages {
+            color: var(--dark);
+            font-size: 0.95em;
+        }
+
+        .reader-mode {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--cream);
+            z-index: 1000;
+            display: none;
+        }
+
+        .reader-header {
+            padding: 15px;
+            background: var(--primary);
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        #pdfCanvas {
+            width: 95% !important;
+            height: auto !important;
+            max-width: 700px;
+            margin: 20px auto;
+            display: block;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            touch-action: pan-y;
+        }
+
+        .smart-controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 12px 25px;
+            border-radius: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .nav-btn {
+            background: var(--accent);
+            color: var(--dark);
+            border: none;
+            padding: 10px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        .nav-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-indicator {
+            color: var(--primary);
+            font-weight: bold;
+            min-width: 100px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="juz-grid" id="juzContainer"></div>
+
+    <div class="reader-mode" id="reader">
+        <div class="reader-header">
+            <span id="currentJuz"></span>
+            <button onclick="exitReader()" style="background:none;border:none;color:white;font-size:1.2em">✕</button>
+        </div>
+        <canvas id="pdfCanvas"></canvas>
+        <div class="smart-controls">
+            <button class="nav-btn" onclick="changePage(-1)">← السابق</button>
+            <span class="page-indicator" id="pageIndicator">صفحة ١</span>
+            <button class="nav-btn" onclick="changePage(1)">التالي →</button>
+        </div>
+    </div>
+
+<script>
+// التقسيم الدقيق
+const JUZ_DATA = [];
+let startPage = 5;
+
+// إعداد بيانات الأجزاء
+JUZ_DATA.push({ 
+    name: "الجزء الأول", 
+    start: startPage, 
+    end: startPage + 5
+});
+startPage += 6;
+
+for(let i = 2; i <= 30; i++) {
+    JUZ_DATA.push({
+        name: `الجزء ${toArabic(i)}`,
+        start: startPage,
+        end: startPage + 4
+    });
+    startPage += 5;
+}
+
+// تهيئة التطبيق
+let pdfDoc = null;
+let currentJuz = null;
+let currentPage = 1;
+let touchStartX = 0;
+
+// تحميل PDF
+pdfjsLib.getDocument({
+    url: 'quran.pdf',
+    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+    cMapPacked: true
+}).promise.then(pdf => {
+    pdfDoc = pdf;
+    renderJuzCards();
+}).catch(handleError);
+
+// عرض قائمة الأجزاء
+function renderJuzCards() {
+    const container = document.getElementById('juzContainer');
+    container.innerHTML = JUZ_DATA.map(juz => `
+        <div class="juz-card" onclick="openJuz(${JUZ_DATA.indexOf(juz)})">
+            <div class="juz-number">${juz.name}</div>
+            <div class="juz-pages">ص ${juz.start} - ${juz.end}</div>
+        </div>
+    `).join('');
+}
+
+// فتح الجزء المحدد
+async function openJuz(index) {
+    currentJuz = JUZ_DATA[index];
+    currentPage = currentJuz.start;
+    document.getElementById('juzContainer').style.display = 'none';
+    document.getElementById('reader').style.display = 'block';
+    document.getElementById('currentJuz').textContent = currentJuz.name;
+    await renderCurrentPage();
+    initTouchControls();
+}
+
+// عرض الصفحة الحالية
+async function renderCurrentPage() {
+    try {
+        const page = await pdfDoc.getPage(currentPage);
+        const viewport = page.getViewport({ scale: calculateScale() });
+        const canvas = document.getElementById('pdfCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        updateControls();
+    } catch (error) {
+        handleError('خطأ في تحميل الصفحة: ' + error.message);
+    }
+}
+
+// التنقل بين الصفحات
+function changePage(offset) {
+    let newPage = currentPage + offset;
+    
+    // الربط التلقائي بين الأجزاء
+    if (newPage < currentJuz.start) {
+        const prevJuz = JUZ_DATA.find(j => j.end === currentJuz.start - 1);
+        if (prevJuz) {
+            currentJuz = prevJuz;
+            newPage = prevJuz.end;
+        }
+    }
+    
+    if (newPage > currentJuz.end) {
+        const nextJuz = JUZ_DATA.find(j => j.start === currentJuz.end + 1);
+        if (nextJuz) {
+            currentJuz = nextJuz;
+            newPage = nextJuz.start;
+        }
+    }
+    
+    if (newPage >= 1 && newPage <= pdfDoc.numPages) {
+        currentPage = newPage;
+        renderCurrentPage();
+    }
+}
+
+// إعداد التحكم باللمس
+function initTouchControls() {
+    const canvas = document.getElementById('pdfCanvas');
+    
+    canvas.addEventListener('touchstart', e => {
+        touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    
+    canvas.addEventListener('touchend', e => {
+        const touchEndX = e.changedTouches[0].clientX;
+        const diff = touchStartX - touchEndX;
+        
+        if (Math.abs(diff) > 50) {
+            if (diff > 0) changePage(1);
+            else changePage(-1);
+        }
+    }, { passive: true });
+}
+
+// تحديث عناصر التحكم
+function updateControls() {
+    document.getElementById('pageIndicator').textContent = `صفحة ${toArabic(currentPage)}`;
+    document.querySelectorAll('.nav-btn')[0].disabled = currentPage === 1;
+    document.querySelectorAll('.nav-btn')[1].disabled = currentPage === pdfDoc.numPages;
+}
+
+// الخروج من وضع القراءة
+function exitReader() {
+    document.getElementById('juzContainer').style.display = 'grid';
+    document.getElementById('reader').style.display = 'none';
+}
+
+// أدوات مساعدة
+function toArabic(num) {
+    const arabicDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+    return num.toString().split('').map(d => arabicDigits[d]).join('');
+}
+
+function calculateScale() {
+    const screenWidth = window.innerWidth;
+    return screenWidth < 768 ? 1.0 : 1.3;
+}
+
+function handleError(message) {
+    alert(message);
+    exitReader();
+}
+
+// إدارة تغيير حجم الشاشة
+window.addEventListener('resize', () => {
+    if (document.getElementById('reader').style.display === 'block') {
+        renderCurrentPage();
+    }
+});
+</script>
+</body>
+</html>
